@@ -1,0 +1,8 @@
+#!/bin/bash -e
+pushd /home/nuxeo >/dev/null
+
+# Save Downloaded maven artifacts
+tar cf - ./.m2
+
+popd >/dev/null
+

@@ -1,0 +1,233 @@
+#!/bin/bash
+
+PID_FILE=/tmp/nuxeo.pid
+
+# restore maven dependencies downloaded in a previous build,
+# so they do not have to be downloaded again.
+# /opt/s2i/destination/artifacts will only be present in the incremental build scenario
+# in which the target image name is an existing docker image which contains
+# dependencies from a prior build execution.
+function restore_saved_artifacts() {
+  if [ "$(ls -A /opt/s2i/destination/artifacts/ 2>/dev/null)" ]; then
+    echo -n "Restoring saved artifacts from prior build..."
+    mv /opt/s2i/destination/artifacts/.m2/repository $HOME/.m2
+  fi
+}
+
+# insert settings for HTTP proxy into settings.xml if supplied
+function configure_studio() {
+  if [ -n "$NUXEO_CONNECT_USERNAME" -a -n "$NUXEO_CONNECT_PASSWORD" ]; then
+    xml="<!--server>\
+      <id>nuxeo-studio</id>\
+      <username>$NUXEO_CONNECT_USERNAME</username>\
+      <password>$NUXEO_CONNECT_PASSWORD</password>\
+    </server-->"
+    sed -i "s|<!-- ### configured studio credentials ### -->|$xml|" $HOME/.m2/settings.xml
+  fi
+}
+
+# Check if the server http port is up
+function ishttpup() {
+  count=0
+  while [ ${count} -lt 64 ]
+  do
+    if curl --head --silent --fail --location --max-time 2 "127.0.0.1:8080" > /dev/null; then
+      echo "Found 127.0.0.1:8080 listening port"
+      return 0
+    fi
+    let count=${count}+1
+  done
+
+  return 1
+}
+
+function move_artifacts() {
+  dir=$1
+  types=
+  shift
+  while [ $# -gt 0 ]; do
+    types="$types;$1"
+    shift
+  done
+
+  for d in $(echo $dir | tr "," "\n")
+  do
+    shift
+    for t in $(echo $types | tr ";" "\n")
+    do
+      echo "Moving all $t artifacts from $LOCAL_SOURCE_DIR/$d directory into =$BUNDLES_DIR for later deployment..."
+      chgrp -fR 0 $LOCAL_SOURCE_DIR/$d/*.$t
+      chmod -fR g+rw $LOCAL_SOURCE_DIR/$d/*.$t
+      mv -v $LOCAL_SOURCE_DIR/$d/*.$t $BUNDLES_DIR 2> /dev/null
+    done
+  done
+}
+
+
+
+# Source code provided to S2I is at ${HOME}
+LOCAL_SOURCE_DIR=${HOME}
+mkdir -p $LOCAL_SOURCE_DIR
+
+# the subdirectory within LOCAL_SOURCE_DIR from where we should copy build
+# artifacts (*.war, *.jar)
+ARTIFACT_DIR=${ARTIFACT_DIR:-target}
+NUXEOPACKAGE_DIR=${NUXEOPACKAGE_DIR:-marketplace/target}
+
+# Resulting JAR files will be deployed to /wildfly/standalone/deployments
+BUNDLES_DIR=$NUXEO_HOME/nxserver/bundles
+
+# Copy the source for compilation
+cp -Rf /opt/s2i/destination/src/. $LOCAL_SOURCE_DIR
+#chgrp -R 0 $LOCAL_SOURCE_DIR
+#chmod -R g+rw $LOCAL_SOURCE_DIR
+
+if [ -d $LOCAL_SOURCE_DIR/configuration ]; then
+  echo "Copying config files from project..."
+
+  if [ -f $LOCAL_SOURCE_DIR/configuration/settings.xml ]; then
+    mkdir -p $HOME/.m2
+    mv $LOCAL_SOURCE_DIR/configuration/settings.xml $HOME/.m2
+  fi
+
+  cp -v $LOCAL_SOURCE_DIR/configuration/* /wildfly/standalone/configuration/
+fi
+
+configure_studio
+
+# If a pom.xml is present, this is a normal build scenario
+# so run maven.
+if [ -f "$LOCAL_SOURCE_DIR/pom.xml" ]; then
+  # restore any maven dependencies which will be present if this is an
+  # incremental build
+  restore_saved_artifacts
+
+  pushd $LOCAL_SOURCE_DIR &> /dev/null  
+
+  if [ -z "$MAVEN_ARGS" ]; then
+    export MAVEN_ARGS="package -Popenshift -DskipTests -B"
+  fi
+
+  # If MAVEN_SETTINGS specified will always add to MAVEN_ARGS
+  # Can be relative to application root
+  # Can be global to image
+  if [ -z "$MAVEN_SETTINGS" ]; then
+    export MAVEN_ARGS="$MAVEN_ARGS -s $HOME/.m2/settings.xml"
+  else
+    if [[ "$MAVEN_SETTINGS" = /* ]]; then
+       [ ! -e "$MAVEN_SETTINGS" ] && echo "Specified settings file does not exist in the image. [$MAVEN_SETTINGS]" && exit 1
+       export MAVEN_ARGS="$MAVEN_ARGS -s $MAVEN_SETTINGS"
+    else
+       [ ! -e "$LOCAL_SOURCE_DIR/$MAVEN_SETTINGS" ] && echo "Specified settings file does not exist in your source code. [$MAVEN_SETTINGS]" && exit 1
+       export MAVEN_ARGS="$MAVEN_ARGS -s $LOCAL_SOURCE_DIR/$MAVEN_SETTINGS"
+    fi
+  fi
+
+  # Append user provided args
+  if [ -n "$MAVEN_ARGS_APPEND" ]; then
+    export MAVEN_ARGS="$MAVEN_ARGS $MAVEN_ARGS_APPEND"
+  fi
+
+  CONTAINER_HEAP_PERCENT=${CONTAINER_HEAP_PERCENT:-0.50}
+  CONTAINER_MEMORY_IN_BYTES=`cat /sys/fs/cgroup/memory/memory.limit_in_bytes`
+
+  DEFAULT_MEMORY_CEILING=$((2**40-1))
+  if [ "${CONTAINER_MEMORY_IN_BYTES}" -lt "${DEFAULT_MEMORY_CEILING}" ]; then
+    CONTAINER_MEMORY_IN_MB=$((${CONTAINER_MEMORY_IN_BYTES}/1024**2))
+    CONTAINER_HEAP_MAX=$(echo "${CONTAINER_MEMORY_IN_MB} ${CONTAINER_HEAP_PERCENT}" | awk '{ printf "%d", $1 * $2 }')
+    JAVA_HEAP_MAX=-Xmx${CONTAINER_HEAP_MAX}
+  fi
+
+  if [ -z $JAVA_GC_OPTS ]; then
+    # note - MaxPermSize no longer valid with v8 of the jdk ... used to have -XX:MaxPermSize=100m
+    JAVA_GC_OPTS="-XX:+UseParallelGC -XX:MinHeapFreeRatio=20 -XX:MaxHeapFreeRatio=40 -XX:GCTimeRatio=4 -XX:AdaptiveSizePolicyWeight=90 -XX:MaxMetaspaceSize=100m"
+  fi
+  if [ ! -z "${CONTAINER_CORE_LIMIT}" ]; then
+    JAVA_CORE_LIMIT="-XX:ParallelGCThreads=${CONTAINER_CORE_LIMIT} -Djava.util.concurrent.ForkJoinPool.common.parallelism=${CONTAINER_CORE_LIMT} -XX:CICompilerCount=2"
+  fi
+  if [ ! -z "${USE_JAVA_DIAGNOSTICS}" ]; then
+    JAVA_DIAGNOSTICS="-XX:NativeMemoryTracking=summary -XX:+PrintGC -XX:+PrintGCDateStamps -XX:+PrintGCTimeStamps -XX:+UnlockDiagnosticVMOptions"
+  fi
+
+  # When arguments such as max heap size are repeated, the JVM respects the last value provided,
+  # so by setting the user provided MAVEN_OPTS value last, we allow the user to override any 
+  # of the values we calculated above.
+  MAVEN_OPTS=$JAVA_GC_OPTS $JAVA_HEAP_MAX $JAVA_CORE_LIMIT $JAVA_DIAGNOSTICS $MAVEN_OPTS
+
+  echo "Found pom.xml... attempting to build with 'mvn ${MAVEN_ARGS}'"
+
+  mvn --version
+  mvn $MAVEN_ARGS
+
+  ERR=$?
+  if [ $ERR -ne 0 ]; then
+    echo "Aborting due to error code $ERR from mvn package"
+    exit $ERR
+  fi
+
+  popd &> /dev/null
+else
+  echo "Moving binaries in source directory into $DEPLOY_DIR for later deployment..."
+  move_artifacts "." war ear rar jar
+fi
+
+
+if [ -f $LOCAL_SOURCE_DIR/.nuxeo-s2i ]; then
+  . $LOCAL_SOURCE_DIR/.nuxeo-s2i
+fi
+
+# Move built artifacts (if any!) from the target/ directory
+# (or $ARTIFACT_DIR if specified)
+if [ -d $LOCAL_SOURCE_DIR/$ARTIFACT_DIR ]; then
+  move_artifacts "$ARTIFACT_DIR" jar
+fi
+
+if [ -f $LOCAL_SOURCE_DIR/nuxeo.conf ]; then
+  echo "Copying nuxeo.conf from project..."
+  cp $LOCAL_SOURCE_DIR/nuxeo.conf /docker-entrypoint-init.d/nuxeo.conf
+  chgrp 0 /docker-entrypoint-init.d/nuxeo.conf
+  chmod g+rw /docker-entrypoint-init.d/nuxeo.conf
+fi
+
+if [ -n $NUXEO_PACKAGE ]; then
+  echo "Installing Nuxeo Package from project..."  
+  PACKAGE=$(ls $LOCAL_SOURCE_DIR/$NUXEO_PACKAGE)
+  /docker-entrypoint.sh nuxeoctl mp-init
+  /docker-entrypoint.sh $NUXEO_HOME/bin/nuxeoctl mp-install $PACKAGE
+fi
+echo "...done"
+
+
+if [ -n $NUXEO_SMOKE_TEST -a "true" == $NUXEO_SMOKE_TEST ]; then
+
+  # This logic is intended to deploy the app as part of assemble
+  # but many apps fail to deploy because they require additional
+  # resources to be present, eg databases, which are not available
+  # at build time, so don't do this for now.
+
+  echo "Starting Nuxeo for test"
+  /docker-entrypoint.sh nuxeoctl startbg
+
+  echo $! > ${PID_FILE}
+
+  rc=0
+  ishttpup || rc=$?
+  if [ $rc -eq 1 ]; then
+    echo "Timed out waiting for http listening port for nuxeo process"
+    exit 1
+  fi
+
+  # TODO: add a handler for Maven functional tests
+  curl --silent --fail --location --max-time 2 -u Administrator:Administrator http://127.0.0.1:8080/nuxeo/api/v1/path/default-domain/workspaces
+  
+  rc=$?
+  rm ${PID_FILE}
+  echo "Stopping Nuxeo"
+  /docker-entrypoint.sh nuxeoctl stop
+  exit $rc
+
+fi
+
+
+exit 0
+
