@@ -26,7 +26,7 @@ Additionnaly you can put a `.nuxeo-s2i` file in your project to set the value of
 ### Files and Directories  
 
 | File                   |  Description                                                  |
-|------------------------|-----------|--------------------------------------------------------------|
+|------------------------|---------------------------------------------------------------|
 | Dockerfile             |  Defines the base builder image                               |
 | s2i/bin/assemble       |  Script that builds the application                           |
 | s2i/bin/usage          |  Script that prints the usage of the builder                  |
@@ -80,5 +80,16 @@ s2i build --incremental=true test/test-app nginx-centos7 nginx-app
 ---> Restoring build artifacts...
 ---> Building and installing application from source...
 ```
+
+# Licensing
+
+Most of the source code in the Nuxeo Platform is copyright Nuxeo and
+contributors, and licensed under the Apache License, Version 2.0.
+
+See [licenses](https://github.com/nuxeo/nuxeo/tree/master/licenses) and the documentation page [Licenses](http://doc.nuxeo.com/x/gIK7) for details.
+
+# About Nuxeo
+
+Nuxeo dramatically improves how content-based applications are built, managed and deployed, making customers more agile, innovative and successful. Nuxeo provides a next generation, enterprise ready platform for building traditional and cutting-edge content oriented applications. Combining a powerful application development environment with SaaS-based tools and a modular architecture, the Nuxeo Platform and Products provide clear business value to some of the most recognizable brands including Verizon, Electronic Arts, Sharp, FICO, the U.S. Navy, and Boeing. Nuxeo is headquartered in New York and Paris. More information is available at [www.nuxeo.com](http://www.nuxeo.com).
 
 
