@@ -1,0 +1,29 @@
+package org.nuxeo.s21;
+
+
+import org.nuxeo.ecm.core.api.DocumentModel;
+import org.nuxeo.ecm.core.event.Event;
+import org.nuxeo.ecm.core.event.EventContext;
+import org.nuxeo.ecm.core.event.EventListener;
+
+import org.nuxeo.ecm.core.event.impl.DocumentEventContext;
+
+public class SampleUpdaterListener implements EventListener {
+  
+
+    @Override
+    public void handleEvent(Event event) {
+        EventContext ctx = event.getContext();
+        if (!(ctx instanceof DocumentEventContext)) {
+          return;
+        }
+
+        DocumentEventContext docCtx = (DocumentEventContext) ctx;
+        DocumentModel doc = docCtx.getSourceDocument();
+
+        // Add some logic starting from here.
+        if("Note".equals(doc.getType())) {
+          doc.setPropertyValue("dc:description","Updated Value");          
+        }
+    }
+}
