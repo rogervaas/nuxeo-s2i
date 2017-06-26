@@ -228,6 +228,8 @@ if [ -n $NUXEO_SMOKE_TEST -a "true" == $NUXEO_SMOKE_TEST ]; then
 
 fi
 
+rm -f $NUXEO_HOME/configured
+
 
 exit 0
 
