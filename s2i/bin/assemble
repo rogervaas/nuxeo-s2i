@@ -224,11 +224,16 @@ if [ -n $NUXEO_SMOKE_TEST -a "true" == $NUXEO_SMOKE_TEST ]; then
   rm ${PID_FILE}
   echo "Stopping Nuxeo"
   /docker-entrypoint.sh nuxeoctl stop
+
+  echo "Resetting image configuration"
+  rm -f $NUXEO_HOME/configured
   exit $rc
 
 fi
 
+echo "Resetting image configuration"
 rm -f $NUXEO_HOME/configured
+
 
 
 exit 0
