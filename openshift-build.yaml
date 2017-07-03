@@ -1,0 +1,36 @@
+apiVersion: v1
+kind: ImageStream
+metadata:      
+  creationTimestamp: null
+  name: nuxeo-s2i  
+spec: {}
+status:
+  dockerImageRepository: ""    
+
+---
+apiVersion: v1
+kind: BuildConfig
+metadata:
+  creationTimestamp: null
+  name: nuxeo-s2i-build
+spec:
+  triggers:
+  - type: ConfigChange
+  - imageChange: {}
+    type: ImageChange
+  source:
+    git:
+      #TODO Add parameter
+      uri: https://github.com/nuxeo-sandbox/nuxeo-s2i/
+      ref: master
+    type: Git
+  strategy:
+    type: Docker
+  output:
+    to:
+      kind: ImageStreamTag
+      name: nuxeo-s2i:latest
+  postCommit: {}
+  resources: {}
+status:
+  lastVersion: 0
