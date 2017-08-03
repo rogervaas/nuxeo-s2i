@@ -17,12 +17,21 @@ function restore_saved_artifacts() {
 # insert settings for HTTP proxy into settings.xml if supplied
 function configure_studio() {
   if [ -n "$NUXEO_CONNECT_USERNAME" -a -n "$NUXEO_CONNECT_PASSWORD" ]; then
-    xml="<!--server>\
+    xml="<server>\
       <id>nuxeo-studio</id>\
       <username>$NUXEO_CONNECT_USERNAME</username>\
       <password>$NUXEO_CONNECT_PASSWORD</password>\
-    </server-->"
+    </server>"
     sed -i "s|<!-- ### configured studio credentials ### -->|$xml|" $HOME/.m2/settings.xml
+  fi
+}
+
+
+function configure_connect() {
+
+  if [ -n "$NUXEO_CONNECT_USERNAME" -a -n "$NUXEO_CONNECT_PASSWORD" -a -n "$NUXEO_STUDIO_PROJECT" ]; then  
+    echo "Configuring connect credentials"
+    /docker-entrypoint.sh nuxeoctl register $NUXEO_CONNECT_USERNAME $NUXEO_STUDIO_PROJECT dev openshift-dev $NUXEO_CONNECT_PASSWORD
   fi
 }
 
@@ -91,6 +100,13 @@ if [ -d $LOCAL_SOURCE_DIR/configuration ]; then
   fi
 
   cp -v $LOCAL_SOURCE_DIR/configuration/* /wildfly/standalone/configuration/
+fi
+
+if [ -f connect.properties ]; then
+  echo "Found connect.properties file in $LOCAL_SOURCE_DIR"  
+  . connect.properties
+else 
+  echo "No connect.properties found"
 fi
 
 configure_studio
@@ -171,14 +187,16 @@ else
   move_artifacts "." war ear rar jar
 fi
 
-
 if [ -f $LOCAL_SOURCE_DIR/.nuxeo-s2i ]; then
+  echo "Found .nuxeo-s2i file : "
+  cat $LOCAL_SOURCE_DIR/.nuxeo-s2i
   . $LOCAL_SOURCE_DIR/.nuxeo-s2i
 fi
 
 # Move built artifacts (if any!) from the target/ directory
 # (or $ARTIFACT_DIR if specified)
 if [ -d $LOCAL_SOURCE_DIR/$ARTIFACT_DIR ]; then
+  echo "Moving all JARs from $ARTIFACT_DIR"
   move_artifacts "$ARTIFACT_DIR" jar
 fi
 
@@ -189,9 +207,12 @@ if [ -f $LOCAL_SOURCE_DIR/nuxeo.conf ]; then
   chmod g+rw /docker-entrypoint-init.d/nuxeo.conf
 fi
 
-if [ -n $NUXEO_PACKAGE ]; then
-  echo "Installing Nuxeo Package from project..."  
+configure_connect
+
+if [ -n $NUXEO_PACKAGE ]; then   
+  echo "Installing Nuxeo Package for project from $LOCAL_SOURCE_DIR/$NUXEO_PACKAGE"  
   PACKAGE=$(ls $LOCAL_SOURCE_DIR/$NUXEO_PACKAGE)
+  echo "Found package $PACKAGE"
   /docker-entrypoint.sh nuxeoctl mp-init
   /docker-entrypoint.sh $NUXEO_HOME/bin/nuxeoctl mp-install $PACKAGE
 fi
@@ -235,13 +256,13 @@ echo "Resetting image configuration"
 rm -f $NUXEO_HOME/configured
 
 mkdir -p /var/lib/nuxeo/data \
-&& chown -R 1000:0 /var/lib/nuxeo/data && chmod -R g+rwX /var/lib/nuxeo/data \
+&& chmod -R g+rwX /var/lib/nuxeo/data \
 && mkdir -p /var/log/nuxeo \
-&& chown -R 1000:0 /var/log/nuxeo && chmod -R g+rwX /var/log/nuxeo \
+&& chmod -R g+rwX /var/log/nuxeo \
 && mkdir -p /var/run/nuxeo \
-&& chown -R 1000:0 /var/run/nuxeo && chmod -R g+rwX /var/run/nuxeo \
+&& chmod -R g+rwX /var/run/nuxeo \
 && mkdir -p /docker-entrypoint-initnuxeo.d \
-&& chown -R 1000:0 /docker-entrypoint-initnuxeo.d && chmod -R g+rwX /docker-entrypoint-initnuxeo.d 
+&& chmod -R g+rwX /docker-entrypoint-initnuxeo.d 
 
 
 exit 0

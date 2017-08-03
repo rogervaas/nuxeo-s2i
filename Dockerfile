@@ -1,4 +1,4 @@
-FROM nuxeo:8.10
+FROM nuxeo:9.2
 USER root
 MAINTAINER Damien Metzler <dmetzler@nuxeo.com>
 
@@ -23,7 +23,7 @@ RUN (curl -v https://www.apache.org/dist/maven/maven-3/$MAVEN_VERSION/binaries/a
     mkdir -p /home/nuxeo/.m2 && \
     mkdir -p /opt/s2i/destination && \
 # Then needed tools for Nuxeo build (ie npm & friends)
-    curl -sL https://deb.nodesource.com/setup_4.x | bash - && \
+    curl -sL https://deb.nodesource.com/setup_6.x | bash - && \
     apt-get update && apt-get install -y --no-install-recommends \
      nodejs \
      build-essential && \

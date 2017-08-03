@@ -20,7 +20,6 @@ spec:
     type: ImageChange
   source:
     git:
-      #TODO Add parameter
       uri: https://github.com/nuxeo-sandbox/nuxeo-s2i/
       ref: master
     type: Git
