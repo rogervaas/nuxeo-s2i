@@ -1,5 +1,4 @@
-FROM nuxeo:9.2
-USER root
+FROM nuxeo/nuxeo:master
 MAINTAINER Damien Metzler <dmetzler@nuxeo.com>
 
 ENV BUILDER_VERSION 1.0
