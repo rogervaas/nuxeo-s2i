@@ -254,6 +254,7 @@ fi
 
 echo "Resetting image configuration"
 rm -f $NUXEO_HOME/configured
+rm -f /etc/nuxeo/nuxeo.conf
 
 mkdir -p /var/lib/nuxeo/data \
 && chmod -R g+rwX /var/lib/nuxeo/data \
