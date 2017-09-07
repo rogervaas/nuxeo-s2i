@@ -72,6 +72,13 @@ function move_artifacts() {
   done
 }
 
+function fixRights() {
+  dir=$1
+  mkdir -p $dir \
+  && chown -R 1000:0 $dir \
+  && chmod -R g+rwX $dir
+}
+
 
 
 # Source code provided to S2I is at ${HOME}
@@ -255,15 +262,10 @@ fi
 echo "Resetting image configuration"
 rm -f $NUXEO_HOME/configured
 rm -f /etc/nuxeo/nuxeo.conf
-
-mkdir -p /var/lib/nuxeo/data \
-&& chmod -R g+rwX /var/lib/nuxeo/data \
-&& mkdir -p /var/log/nuxeo \
-&& chmod -R g+rwX /var/log/nuxeo \
-&& mkdir -p /var/run/nuxeo \
-&& chmod -R g+rwX /var/run/nuxeo \
-&& mkdir -p /docker-entrypoint-initnuxeo.d \
-&& chmod -R g+rwX /docker-entrypoint-initnuxeo.d 
+fixRights /var/lib/nuxeo/data
+fixRights /var/log/nuxeo
+fixRights /var/run/nuxeo
+fixRights /docker-entrypoint-initnuxeo.d
 
 
 exit 0
