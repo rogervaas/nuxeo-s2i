@@ -6,9 +6,9 @@ ENV MAVEN_VERSION=3.5.0
 ENV STI_SCRIPTS_PATH=/usr/libexec/s2i
 
 LABEL io.k8s.description="Platform for building and running Nuxeo based applications" \
-      io.k8s.display-name="Nuxeo 8.10" \
+      io.k8s.display-name="Nuxeo S2i 9.3-SNAPSHOT" \
       io.openshift.expose-services="8080:http" \
-      io.openshift.tags="builder,nuxeo,nuxeo810" \
+      io.openshift.tags="builder,nuxeo,nuxeo93" \
       io.openshift.s2i.scripts-url="image://$STI_SCRIPTS_PATH" \
       io.openshift.s2i.destination="/opt/s2i/destination"
 
