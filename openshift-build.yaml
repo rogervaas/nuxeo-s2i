@@ -21,7 +21,7 @@ spec:
   source:
     git:
       uri: https://github.com/nuxeo-sandbox/nuxeo-s2i/
-      ref: master
+      ref: chained-build
     type: Git
   strategy:
     type: Docker

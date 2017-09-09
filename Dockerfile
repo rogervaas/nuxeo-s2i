@@ -1,4 +1,4 @@
-FROM nuxeo/nuxeo:master
+FROM nuxeo/docker-nuxeo:latest
 MAINTAINER Damien Metzler <dmetzler@nuxeo.com>
 
 ENV BUILDER_VERSION 1.0
@@ -38,14 +38,19 @@ RUN mkdir -p /opt/s2i/destination && \
     chown -R 1000:0 /opt/s2i/destination && \
     chmod -R g+rwX /opt/s2i/destination && \
     chown -R 1000:0 /home/nuxeo && \
-    chmod -R g+rwX /home/nuxeo
+    chmod -R g+rwX /home/nuxeo && \
+    mkdir -p /build/ && \
+    chown -R 1000:0 /build/ && \
+    chmod -R g+rwX /build/
+
 
 ADD ./contrib/settings.xml /home/nuxeo/.m2/
+ADD ./contrib/install.sh /build/install.sh
 
 COPY ./s2i/bin/ $STI_SCRIPTS_PATH
 
 # This default user is created in the openshift/base-centos7 image
-USER 1000
+USER 1000:0
 
 
-CMD ["$STI_SCRIPTS_PATH/usage"]
+CMD ["/usr/libexec/s2i/usage"]

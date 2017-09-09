@@ -1,16 +1,16 @@
 #!/bin/sh
 
 cat <<EOF
-This is an S2I Nuxeo 8.10 base image responsible for consuming a Nuxeo project
+This is an S2I Nuxeo base image responsible for consuming a Nuxeo project
 and deploying it onto Nuxeo platform
 To use it, install S2I: https://github.com/openshift/source-to-image.
 
 Sample invocation:
 
-s2i build git://github.com/dmetzler/nuxeo-graphql nuxeo/nuxeo-s2i:8.10 nuxeo-graphql
+s2i build https://github.com/nuxeo/nuxeo-sample-project nuxeo/s2i nuxeo-sample
 
 You can then run the resulting image via:
-docker run -ti -p 8080:8080 nuxeo-graphql
+docker run -ti -p 8080:8080 nuxeo-sample
 
 Details:
 If a pom.xml is present in the source directory, the project is built with maven and the

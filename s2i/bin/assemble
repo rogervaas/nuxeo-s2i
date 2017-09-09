@@ -9,7 +9,7 @@ PID_FILE=/tmp/nuxeo.pid
 # dependencies from a prior build execution.
 function restore_saved_artifacts() {
   if [ "$(ls -A /opt/s2i/destination/artifacts/ 2>/dev/null)" ]; then
-    echo -n "Restoring saved artifacts from prior build..."
+    echo -n "---> Restoring saved artifacts from prior build..."
     mv /opt/s2i/destination/artifacts/.m2/repository $HOME/.m2
   fi
 }
@@ -23,6 +23,7 @@ function configure_studio() {
       <password>$NUXEO_CONNECT_PASSWORD</password>\
     </server>"
     sed -i "s|<!-- ### configured studio credentials ### -->|$xml|" $HOME/.m2/settings.xml
+    sed -i "s|<connect.password>****</connect.password>|<connect.password>$NUXEO_CONNECT_PASSWORD</connect.password>|" $HOME/.m2/settings.xml
   fi
 }
 
@@ -30,7 +31,7 @@ function configure_studio() {
 function configure_connect() {
 
   if [ -n "$NUXEO_CONNECT_USERNAME" -a -n "$NUXEO_CONNECT_PASSWORD" -a -n "$NUXEO_STUDIO_PROJECT" ]; then  
-    echo "Configuring connect credentials"
+    echo "---> Configuring connect credentials"
     /docker-entrypoint.sh nuxeoctl register $NUXEO_CONNECT_USERNAME $NUXEO_STUDIO_PROJECT dev openshift-dev $NUXEO_CONNECT_PASSWORD
   fi
 }
@@ -41,7 +42,7 @@ function ishttpup() {
   while [ ${count} -lt 64 ]
   do
     if curl --head --silent --fail --location --max-time 2 "127.0.0.1:8080" > /dev/null; then
-      echo "Found 127.0.0.1:8080 listening port"
+      echo "---> Found 127.0.0.1:8080 listening port"
       return 0
     fi
     let count=${count}+1
@@ -50,33 +51,11 @@ function ishttpup() {
   return 1
 }
 
-function move_artifacts() {
-  dir=$1
-  types=
-  shift
-  while [ $# -gt 0 ]; do
-    types="$types;$1"
-    shift
-  done
-
-  for d in $(echo $dir | tr "," "\n")
-  do
-    shift
-    for t in $(echo $types | tr ";" "\n")
-    do
-      echo "Moving all $t artifacts from $LOCAL_SOURCE_DIR/$d directory into =$BUNDLES_DIR for later deployment..."
-      chgrp -fR 0 $LOCAL_SOURCE_DIR/$d/*.$t
-      chmod -fR g+rw $LOCAL_SOURCE_DIR/$d/*.$t
-      mv -v $LOCAL_SOURCE_DIR/$d/*.$t $BUNDLES_DIR 2> /dev/null
-    done
-  done
-}
-
 function fixRights() {
   dir=$1
   mkdir -p $dir \
-  && chown -R 1000:0 $dir \
-  && chmod -R g+rwX $dir
+  && chgrp -fR 0 $dir \
+  && chmod -fR g+rwX $dir
 }
 
 
@@ -85,35 +64,30 @@ function fixRights() {
 LOCAL_SOURCE_DIR=${HOME}
 mkdir -p $LOCAL_SOURCE_DIR
 
-# the subdirectory within LOCAL_SOURCE_DIR from where we should copy build
-# artifacts (*.war, *.jar)
-ARTIFACT_DIR=${ARTIFACT_DIR:-target}
-NUXEOPACKAGE_DIR=${NUXEOPACKAGE_DIR:-marketplace/target}
 
-# Resulting JAR files will be deployed to /wildfly/standalone/deployments
-BUNDLES_DIR=$NUXEO_HOME/nxserver/bundles
+# Resulting artifact directory
+BUILD_DIR=/build
+
+# the subdirectory within LOCAL_SOURCE_DIR from where we should copy build
+# artifacts (*.war, *.jar) to the build directory.
+# Default values may be overriden in a .nuxeo-s2i file at the project's root
+ARTIFACT_DIR=${ARTIFACT_DIR:-target}
+NUXEO_PACKAGE_DIR=${NUXEO_PACKAGE_DIR:-marketplace/target}
 
 # Copy the source for compilation
 cp -Rf /opt/s2i/destination/src/. $LOCAL_SOURCE_DIR
-#chgrp -R 0 $LOCAL_SOURCE_DIR
-#chmod -R g+rw $LOCAL_SOURCE_DIR
 
-if [ -d $LOCAL_SOURCE_DIR/configuration ]; then
-  echo "Copying config files from project..."
-
-  if [ -f $LOCAL_SOURCE_DIR/configuration/settings.xml ]; then
-    mkdir -p $HOME/.m2
-    mv $LOCAL_SOURCE_DIR/configuration/settings.xml $HOME/.m2
-  fi
-
-  cp -v $LOCAL_SOURCE_DIR/configuration/* /wildfly/standalone/configuration/
+if [ -f $LOCAL_SOURCE_DIR/settings.xml ]; then
+  echo "---> Copying Maven settings from project..."
+  mkdir -p $HOME/.m2
+  mv $LOCAL_SOURCE_DIR/settings.xml $HOME/.m2
 fi
 
-if [ -f connect.properties ]; then
-  echo "Found connect.properties file in $LOCAL_SOURCE_DIR"  
-  . connect.properties
+if [ -f /connect.properties ]; then
+  echo "---> Found connect.properties file"  
+  . /connect.properties
 else 
-  echo "No connect.properties found"
+  echo "---> No connect.properties found"
 fi
 
 configure_studio
@@ -128,7 +102,7 @@ if [ -f "$LOCAL_SOURCE_DIR/pom.xml" ]; then
   pushd $LOCAL_SOURCE_DIR &> /dev/null  
 
   if [ -z "$MAVEN_ARGS" ]; then
-    export MAVEN_ARGS="package -Popenshift -DskipTests -B"
+    export MAVEN_ARGS="package -Popenshift,nuxeo -DskipTests -B"
   fi
 
   # If MAVEN_SETTINGS specified will always add to MAVEN_ARGS
@@ -138,10 +112,10 @@ if [ -f "$LOCAL_SOURCE_DIR/pom.xml" ]; then
     export MAVEN_ARGS="$MAVEN_ARGS -s $HOME/.m2/settings.xml"
   else
     if [[ "$MAVEN_SETTINGS" = /* ]]; then
-       [ ! -e "$MAVEN_SETTINGS" ] && echo "Specified settings file does not exist in the image. [$MAVEN_SETTINGS]" && exit 1
+       [ ! -e "$MAVEN_SETTINGS" ] && echo "---> Specified settings file does not exist in the image. [$MAVEN_SETTINGS]" && exit 1
        export MAVEN_ARGS="$MAVEN_ARGS -s $MAVEN_SETTINGS"
     else
-       [ ! -e "$LOCAL_SOURCE_DIR/$MAVEN_SETTINGS" ] && echo "Specified settings file does not exist in your source code. [$MAVEN_SETTINGS]" && exit 1
+       [ ! -e "$LOCAL_SOURCE_DIR/$MAVEN_SETTINGS" ] && echo "---> Specified settings file does not exist in your source code. [$MAVEN_SETTINGS]" && exit 1
        export MAVEN_ARGS="$MAVEN_ARGS -s $LOCAL_SOURCE_DIR/$MAVEN_SETTINGS"
     fi
   fi
@@ -177,25 +151,22 @@ if [ -f "$LOCAL_SOURCE_DIR/pom.xml" ]; then
   # of the values we calculated above.
   MAVEN_OPTS=$JAVA_GC_OPTS $JAVA_HEAP_MAX $JAVA_CORE_LIMIT $JAVA_DIAGNOSTICS $MAVEN_OPTS
 
-  echo "Found pom.xml... attempting to build with 'mvn ${MAVEN_ARGS}'"
+  echo "---> Found pom.xml... attempting to build with 'mvn ${MAVEN_ARGS}'"
 
   mvn --version
   mvn $MAVEN_ARGS
 
   ERR=$?
   if [ $ERR -ne 0 ]; then
-    echo "Aborting due to error code $ERR from mvn package"
+    echo "---> Aborting due to error code $ERR from mvn package"
     exit $ERR
   fi
 
   popd &> /dev/null
-else
-  echo "Moving binaries in source directory into $DEPLOY_DIR for later deployment..."
-  move_artifacts "." war ear rar jar
 fi
 
 if [ -f $LOCAL_SOURCE_DIR/.nuxeo-s2i ]; then
-  echo "Found .nuxeo-s2i file : "
+  echo "---> Found .nuxeo-s2i file : "
   cat $LOCAL_SOURCE_DIR/.nuxeo-s2i
   . $LOCAL_SOURCE_DIR/.nuxeo-s2i
 fi
@@ -203,37 +174,35 @@ fi
 # Move built artifacts (if any!) from the target/ directory
 # (or $ARTIFACT_DIR if specified)
 if [ -d $LOCAL_SOURCE_DIR/$ARTIFACT_DIR ]; then
-  echo "Moving all JARs from $ARTIFACT_DIR"
-  move_artifacts "$ARTIFACT_DIR" jar
+  echo "---> Moving all JARs from $ARTIFACT_DIR"
+  mkdir -p $BUILD_DIR/artifacts
+  cp $LOCAL_SOURCE_DIR/$ARTIFACT_DIR/*.jar $BUILD_DIR/artifacts
 fi
 
 if [ -f $LOCAL_SOURCE_DIR/nuxeo.conf ]; then
-  echo "Copying nuxeo.conf from project..."
-  cp $LOCAL_SOURCE_DIR/nuxeo.conf /docker-entrypoint-init.d/nuxeo.conf
-  chgrp 0 /docker-entrypoint-init.d/nuxeo.conf
-  chmod g+rw /docker-entrypoint-init.d/nuxeo.conf
+  echo "---> Copying nuxeo.conf from project..."
+  cp $LOCAL_SOURCE_DIR/nuxeo.conf /$BUILD_DIR/nuxeo.conf  
 fi
 
-configure_connect
-
-if [ -n $NUXEO_PACKAGE ]; then   
-  echo "Installing Nuxeo Package for project from $LOCAL_SOURCE_DIR/$NUXEO_PACKAGE"  
-  PACKAGE=$(ls $LOCAL_SOURCE_DIR/$NUXEO_PACKAGE)
-  echo "Found package $PACKAGE"
-  /docker-entrypoint.sh nuxeoctl mp-init
-  /docker-entrypoint.sh $NUXEO_HOME/bin/nuxeoctl mp-install $PACKAGE
+if [ -n $NUXEO_PACKAGE_DIR ]; then   
+  if [ -d $LOCAL_SOURCE_DIR/$NUXEO_PACKAGE_DIR ]; then
+    mkdir -p $BUILD_DIR/marketplace
+    cp $LOCAL_SOURCE_DIR/$NUXEO_PACKAGE_DIR/*.zip $BUILD_DIR/marketplace/  
+  fi
 fi
-echo "...done"
 
 
-if [ -n $NUXEO_SMOKE_TEST -a "true" == $NUXEO_SMOKE_TEST ]; then
+if [[ ( -n $NUXEO_SMOKE_TEST ) && ( "true" == $NUXEO_SMOKE_TEST ) ]]; then
 
   # This logic is intended to deploy the app as part of assemble
   # but many apps fail to deploy because they require additional
   # resources to be present, eg databases, which are not available
   # at build time, so don't do this for now.
 
-  echo "Starting Nuxeo for test"
+  echo "---> Installing artifacts"
+  /build/install.sh
+
+  echo "---> Starting Nuxeo for test"
   /docker-entrypoint.sh nuxeoctl startbg
 
   echo $! > ${PID_FILE}
@@ -241,32 +210,35 @@ if [ -n $NUXEO_SMOKE_TEST -a "true" == $NUXEO_SMOKE_TEST ]; then
   rc=0
   ishttpup || rc=$?
   if [ $rc -eq 1 ]; then
-    echo "Timed out waiting for http listening port for nuxeo process"
+    echo "---> Timed out waiting for http listening port for nuxeo process"
     exit 1
   fi
 
   # TODO: add a handler for Maven functional tests
-  curl --silent --fail --location --max-time 2 -u Administrator:Administrator http://127.0.0.1:8080/nuxeo/api/v1/path/default-domain/workspaces
+  if [[ ( -n $MAVEN_VERIFY ) && ( $MAVEN_VERIFY == "true") ]]; then
+    pushd $LOCAL_SOURCE_DIR
+    mvn verify
+    rc=$?
+    popd
+  else 
+    curl --silent --fail --location --max-time 2 -u Administrator:Administrator http://127.0.0.1:8080/nuxeo/api/v1/path/default-domain/workspaces > /dev/null
+    rc=$?
+  fi
   
-  rc=$?
   rm ${PID_FILE}
-  echo "Stopping Nuxeo"
+  echo "---> Stopping Nuxeo"
   /docker-entrypoint.sh nuxeoctl stop
 
-  echo "Resetting image configuration"
+  echo "---> Resetting image configuration"
   rm -f $NUXEO_HOME/configured
+  rm -f /etc/nuxeo/nuxeo.conf
+  fixRights /var/lib/nuxeo/data
+  fixRights /var/log/nuxeo
+  fixRights /var/run/nuxeo
+  fixRights /docker-entrypoint-initnuxeo.d
   exit $rc
 
 fi
-
-echo "Resetting image configuration"
-rm -f $NUXEO_HOME/configured
-rm -f /etc/nuxeo/nuxeo.conf
-fixRights /var/lib/nuxeo/data
-fixRights /var/log/nuxeo
-fixRights /var/run/nuxeo
-fixRights /docker-entrypoint-initnuxeo.d
-
 
 exit 0
 
